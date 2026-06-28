@@ -250,6 +250,58 @@ Either add a dedicated `GET /parent/:studentId` route with `isParent` middleware
 
 ---
 
+## BUG-011 · Student grade level was never actually enforced (FIXED 2026-06-25)
+
+**Severity:** High (access control)  
+**Status:** ✅ Fixed 2026-06-25 (same pass that added course-level permissions)  
+**File:** `controllers/handlers/educational-material.js` — `getStudentEducationalMaterial`
+
+**Problem:**  
+The filter computed a grade match into a local `exists` flag but **never read it** in the
+return decision. Whether a student saw a material depended only on the class check (or, when
+no classes were set, it returned `true` for any student whose grade list was merely non-empty).
+So a student could see a material targeted at a **different grade**, as long as the class
+matched or no class was specified.
+
+```js
+// Before (broken) — `exists` is set but never used
+let exists = false;
+_.each(perm.grades, (pdg) => {
+  if (pdg.toString() === period_grade.grade.toString()) exists = true;
+});
+if (perm.classes?.length > 0) {
+  let class_exists = false;
+  _.each(perm.classes, (pdc) => { if (pdc.toString() === period_classes.classes.toString()) class_exists = true; });
+  if (class_exists) return true;   // ← grade `exists` ignored
+} else {
+  return true;                     // ← grade `exists` ignored
+}
+return false;
+```
+
+**Fix (applied):**  
+Rewrote the filter to enforce all three levels as AND-constraints — **Grade AND Class AND
+Course** — with safe optional chaining for missing student period entries:
+
+```js
+const grades = (perm.grades ?? []).map((g) => g.toString());
+if (grades.length === 0) return false;
+if (!student_grade_id || !grades.includes(student_grade_id)) return false;   // grade now enforced
+
+const classes = (perm.classes ?? []).map((c) => c.toString());
+if (classes.length > 0 && (!student_class_id || !classes.includes(student_class_id))) return false;
+
+const courses = (perm.courses ?? []).map((c) => c.toString());          // NEW level
+if (courses.length > 0 && !courses.some((cid) => student_course_ids.includes(cid))) return false;
+
+return true;
+```
+
+**Related:** the `courses[]` level itself was added in the same pass (model + create/upsert
+handlers + frontend cascade UI). See the educational-material brain repo change log (2026-06-25).
+
+---
+
 ## Minor
 
 **Typo — `sessiion` (double `i`) in delete handler parameter**  
