@@ -22,18 +22,20 @@ The brain doc (`grading-system`) documents the field as `grade: Mixed` and the u
 
 ---
 
-## GR-02 · MEDIUM — `getStoreStudentCourseGrades` omits `isDeleted: false`
+## GR-02 · MEDIUM — `getStoreStudentCourseGrades` omits `isDeleted: false` — ✅ FIXED 2026-07-06
 
-**File:** `controllers/handlers/student-course-grade.js` lines 12–27
+**File:** `controllers/handlers/student-course-grade.js`
 
 ```js
 const query = { store_id, period_id, course_id, student_id: { $in: studentIds.map(...) } };
 return StudentCourseGrades.find(query);   // no isDeleted filter
 ```
 
-`updateStudentCourseGrade` filters `isDeleted: false`, so the model supports soft delete — but the read path returns soft-deleted grade records. (No delete endpoint exists yet, so impact is latent, but it's inconsistent and will surface once deletion is added.)
+`updateStudentCourseGrade` filters `isDeleted: false`, so the model supports soft delete — but the read path returned soft-deleted grade records.
 
-**Fix:** add `isDeleted: false` to the query.
+**FIXED** while building the grade-approval workflow: the query now sets `query.isDeleted = false`. This
+became load-bearing because reject soft-deletes a pending grade — without the filter the rejected value
+would still show in the gradebook. See the `grading-system` brain "Grade & Comment Approval Workflow".
 
 ---
 
@@ -44,6 +46,10 @@ return StudentCourseGrades.find(query);   // no isDeleted filter
 The "upsert" first calls `getStoreStudentCourseGrades(...[period_key]...)`; if none found it creates, else updates. There is **no unique index** on `(student_id, course_id, period_id, period_timeline)`. Two concurrent saves (e.g. double-click, or two graders) both read "none found" and both insert → duplicate grade records for the same cell. The grouped read (`_.groupBy(..., 'student_id')`) then returns an array with two entries and the UI shows whichever it picks.
 
 **Fix:** add a unique compound index and use a real `findOneAndUpdate(..., { upsert: true })` keyed on that tuple.
+
+**Still open + now wider (2026-07-06):** the new `submitStudentCourseGrade` (teacher approval path) reuses the
+same read-then-write logic, so the duplicate-under-concurrency window now exists on two endpoints. A unique
+compound index would fix both at once.
 
 ---
 
@@ -72,7 +78,7 @@ If `student_ids` is `undefined`, `student_ids?.length == 0` is `undefined == 0` 
 | ID | Severity | Description |
 |---|---|---|
 | GR-01 | HIGH | Brain doc says field `grade`; real model/controller use `score`/`comment`/`period_timeline`(`period_key`) |
-| GR-02 | MEDIUM | Read query omits `isDeleted:false` → soft-deleted grades returned |
-| GR-03 | MEDIUM | Read-then-write upsert without unique index → duplicate grade records |
-| GR-04 | LOW | `visible` flag unused (no student grade endpoint) |
+| GR-02 | ~~MEDIUM~~ ✅ FIXED | Read query omitted `isDeleted:false` → now filtered (2026-07-06) |
+| GR-03 | MEDIUM | Read-then-write upsert without unique index → duplicate grade records (now on upsert **and** submit) |
+| GR-04 | LOW | `visible` flag unused (no student grade endpoint); approval uses a separate `status` field |
 | GR-05 | LOW | `student_ids` validation passes when undefined / breaks on non-array |
