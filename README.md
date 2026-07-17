@@ -22,6 +22,7 @@
 | [educational-material-bugs.md](educational-material-bugs.md) | educational material | HIGH (earlier pass; BUG-011 grade-enforcement fixed 2026-06-25 w/ course-level perms) |
 | [private-lessons-bugs.md](private-lessons-bugs.md) | private lessons & rates | CRITICAL (partly fixed — see staleness note) |
 | [email-services-bugs.md](email-services-bugs.md) | email send/schedule + SES delivery tracking | HIGH (2 fixed 2026-06-26; deliverability + webhook-auth open) |
+| [ota-live-updates-bugs.md](ota-live-updates-bugs.md) | OTA live updates (Capgo + S3/CloudFront) | **CRITICAL** (all 4 fixed 2026-07-16; no-rollback + no-staged-rollout open) |
 
 ---
 
