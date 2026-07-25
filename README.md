@@ -23,6 +23,8 @@
 | [private-lessons-bugs.md](private-lessons-bugs.md) | private lessons & rates | CRITICAL (partly fixed — see staleness note) |
 | [email-services-bugs.md](email-services-bugs.md) | email send/schedule + SES delivery tracking | HIGH (2 fixed 2026-06-26; deliverability + webhook-auth open) |
 | [ota-live-updates-bugs.md](ota-live-updates-bugs.md) | OTA live updates (Capgo + S3/CloudFront) | **CRITICAL** (all 4 fixed 2026-07-16; no-rollback + no-staged-rollout open) |
+| [ui-layout-bugs.md](ui-layout-bugs.md) | `global.scss` breadcrumb-bar layout (frontend, cosmetic) | MEDIUM (2026-07-23; fixed on 2 pages, global fix open) |
+| [api-gateway-wiring-bugs.md](api-gateway-wiring-bugs.md) | REST API Gateway method/param map vs Express routes | HIGH (2026-07-23; 7 wiring bugs fixed, orphaned-verb cleanup open) |
 
 ---
 
@@ -38,6 +40,10 @@
    without `isDeleted: false` (the period aggregations only `$match { store_id }`). The brain docs
    claim "all queries include `isDeleted:false`" — they don't. Soft-deleted records (incl. PII) ship
    in the bootstrap payload; the frontend only masks some of them in list views.
+   **Partially fixed 2026-07-14:** the 4 hot period aggregations
+   (`fetchStorePeriodStudents/Courses/Classes/Teachers`) now `$match { …, isDeleted:{$ne:true} }`
+   (verified: 5 soft-deleted teachers stopped leaking into bootstrap). The rest of the read paths are
+   still unfixed. See the **Frontistirio-database-indexing-brain-repo** for the full pass + index catalog.
 
 Also high-impact and quick: open `/users/register-superadmin` (no auth) and the
 `change-password` IDOR (`authentication-security-bugs.md` SEC-01/SEC-02).
@@ -55,6 +61,8 @@ Also high-impact and quick: open `/users/register-superadmin` (no auth) and the
 - **Heavy `console.log` of secrets / passwords / tokens / full documents** across controllers.
 - **Brain-doc drift** — several docs describe an earlier version of the code (field names, S3
   buckets, helper sync/async, soft-delete guarantees). Mismatches are flagged inline per report.
+- **Same-specificity CSS clashes in `global.scss`** decided by source order — a later utility class
+  silently disables an earlier layout rule on elements that carry both (see `ui-layout-bugs.md`).
 
 ---
 
