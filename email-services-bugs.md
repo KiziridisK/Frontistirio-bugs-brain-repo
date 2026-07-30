@@ -83,10 +83,12 @@ Existing stuck rows are repaired with `scripts/recomputeEmails.js` (idempotent).
 
 ## 🟠 Open findings (not yet fixed)
 
-### BUG-EML-003 · Sending From a `@gmail.com` address lands in spam
+### BUG-EML-003 · Sending From a `@gmail.com` address lands in spam · **FIXED 2026-07-30**
 
 **Severity:** High (deliverability — feature unusable for real recipients)
 **Where:** `.env` `SES_FROM=kiziridis.k2000@gmail.com`; used in `controllers/emails.js` (`fromAddress`).
+
+**Fix (applied):** verified the owned domain `eduflow.gr` in SES (eu-central-1) + Easy DKIM, added a custom MAIL FROM `mail.eduflow.gr` (SPF alignment) and a DMARC record (`p=quarantine`), and set `SES_FROM=no-reply@eduflow.gr`. DNS records went into the eduflow.gr Route 53 zone. Confirmed: a live send now lands in the Gmail **Inbox**, not Spam. See email-services brain change-log 2026-07-30.
 
 **Problem:**
 Sending "From `@gmail.com`" through SES fails SPF (Amazon IP not in gmail.com's record),
@@ -100,10 +102,12 @@ change — only `.env` + DNS.
 
 ---
 
-### BUG-EML-004 · `/emails/ses-webhook` does not verify the SNS signature
+### BUG-EML-004 · `/emails/ses-webhook` does not verify the SNS signature · **FIXED 2026-07-30**
 
 **Severity:** Medium (security — status spoofing)
 **File:** `controllers/emails.js` — `handleSesWebhook`
+
+**Fix (applied):** added `sns-validator` — every incoming message is now signature-verified (`validateSnsSignature`) BEFORE it is trusted; an invalid signature returns **403**. Also added an AWS-host guard so we only ever fetch a `sns.*.amazonaws.com` `SubscribeURL`. Verified live: real SNS delivery events pass validation (0 rejections in SNS metrics), forged/unsigned POSTs get 403.
 
 **Problem:**
 The webhook is public (correctly — AWS calls it) but trusts **any** POST that looks like an
