@@ -73,6 +73,26 @@ If `student_ids` is `undefined`, `student_ids?.length == 0` is `undefined == 0` 
 
 ---
 
+## GR-06 · HIGH (broken access control) — teacher grade submit had no ownership check — ✅ FIXED 2026-07-06
+
+**File:** `controllers/student-course-grade.js` — `submitStudentCourseGrade`
+
+As originally built (grade-approval session), the endpoint was gated by `isTeacher` only. It read
+`{ student_id, course_id, period_key, score, comment }` from the body and wrote the grade **without
+verifying the teacher actually teaches that course/student** — it scoped only by `req.user.store`. So
+any authenticated teacher could submit (and, with `require_grade_approval` OFF, directly apply) a grade
+for **any course of any student in their store**, just by POSTing an arbitrary `course_id`/`student_id`.
+
+**Fix (2026-07-06, teacher-view session):** added a server-side ownership gate — resolve the teacher via
+`teacherHandler.getTeacherByUserId(user_id)`, assert `course_id ∈ getTeacherPeriodAssignmentIds(teacher,
+periodId).courseIds` (throws `course_not_assigned_to_teacher`), and the same for the new teacher read
+endpoint `getTeacherStudentCourseGrades` (shared helper `resolveTeacherForCourse(req, course_id)`).
+The teacher **material upload** endpoint got an analogous grade/class/course scope gate. **Still open:**
+per-**student** validation is not enforced on submit (only per-course) — a teacher could target a
+`student_id` not actually in that course (low risk; the course check + admin approval are the guards).
+
+---
+
 ## Summary
 
 | ID | Severity | Description |
@@ -82,3 +102,4 @@ If `student_ids` is `undefined`, `student_ids?.length == 0` is `undefined == 0` 
 | GR-03 | MEDIUM | Read-then-write upsert without unique index → duplicate grade records (now on upsert **and** submit) |
 | GR-04 | LOW | `visible` flag unused (no student grade endpoint); approval uses a separate `status` field |
 | GR-05 | LOW | `student_ids` validation passes when undefined / breaks on non-array |
+| GR-06 | ~~HIGH~~ ✅ FIXED | Teacher grade submit lacked course-ownership check (IDOR) → now gated server-side (2026-07-06); per-student check still open |

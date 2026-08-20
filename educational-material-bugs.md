@@ -307,3 +307,69 @@ handlers + frontend cascade UI). See the educational-material brain repo change 
 **Typo — `sessiion` (double `i`) in delete handler parameter**  
 `controllers/handlers/educational-material.js` line ~133  
 Parameter is named `sessiion` instead of `session`. Doesn't break anything since it's consistent within the function, but worth cleaning up.
+
+---
+
+## BUG-012 · Any authenticated user could download any material (IDOR) — FIXED 2026-07-17
+
+**Severity:** Critical
+**File:** `controllers/educational-material.js` — `getStoreEducationalMaterial`
+**Lines:** ~20–65 (pre-fix)
+
+**Problem:**
+The download route `GET /educational-material/get-educational-material/:materialId` looked the
+material up by raw id and signed an S3 URL for it, with **no authorization check at all**. The
+route guard (`authorizeRoles("store-user","student","parent","teacher")`) only proved the caller
+was logged in *as some role* — never that the material was theirs to read.
+
+Consequences: any authenticated student/parent/teacher could download **any file of any store**
+by guessing or replaying a 24-hex ObjectId — including other stores' material, and material
+whose `period_permissions` explicitly excluded them. Soft-deleted material was downloadable too.
+
+**Fix:**
+Added `canDownloadMaterial(user, material)`, called before signing the URL (403 otherwise):
+
+- store isolation first — `material.store_id` must equal the caller's store, for every role;
+- soft-deleted material is refused for everyone except store-users;
+- **store-user** → anything in their own store;
+- **teacher** → own uploads (`createdBy`), material whose `period_permissions.courses` intersect
+  their period courses, or material attached to the syllabus of one of their courses;
+- **student** → whatever `getStudentEducationalMaterial` grants (the Grade→Class→Course ladder),
+  or material attached to the syllabus of a course they attend;
+- **parent** → the union of the above over their children.
+
+The syllabus arm exists because attaching material to a chapter is itself a grant — see
+`handlers/course-syllabus.js` `getSyllabusMaterialIdsForCourses`. Found while building the
+course-syllabus feature (the feature widens who reads material, so the missing check had to go
+first).
+
+---
+
+## BUG-013 · Course-level permissions are invisible to students who attend via a class
+
+**Severity:** Medium — OPEN
+**File:** `controllers/handlers/educational-material.js` — `getStudentEducationalMaterial`
+**Lines:** ~355–375 (Level 3 — Course)
+
+**Problem:**
+Level 3 tests the student's course ids against `student.period_courses` only. But
+`period_courses` on the STUDENT doc is written solely for directly-assigned students
+(`updateStoreStudentCourses`, called from `upsertCourseDetails` for not-in-class students).
+Assigning a course to a **class** writes to the CLASS doc (`updateStoreClassCourses`) and never
+copies it down to the class's students.
+
+So a material scoped to a course is hidden from every student who attends that course through
+their τμήμα — `student_course_ids` is empty for them, and `courses.length > 0` then fails the
+check. It only appears to work because most such material also carries a `classes` filter, which
+passes at Level 2.
+
+**Fix:** resolve the student's courses as the union of both paths, as
+`handlers/course-syllabus.js` `getStudentPeriodCourseIds(student, period_id)` already does:
+
+```js
+const student_course_ids = await syllabusHandler.getStudentPeriodCourseIds(student, period_id);
+```
+
+**Related:** the same root cause hit bootstrap — see BS-05 in `bootstrap-bugs.md`, fixed
+2026-07-17. This one is left OPEN: it changes who sees existing material, so it wants a
+deliberate pass rather than a drive-by.

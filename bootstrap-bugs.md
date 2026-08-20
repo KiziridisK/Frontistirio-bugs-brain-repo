@@ -70,6 +70,48 @@ Combine with `store-management-bugs.md` SM-01/SM-02 (a store can end up with zer
 
 ---
 
+---
+
+## BS-05 · Students and parents receive no class-derived courses — FIXED 2026-07-17
+
+**Severity:** High
+**File:** `controllers/bootstrap.js` — `student` branch (~line 140) and `parent` branch (~line 250)
+
+**Problem:**
+Both branches derived the caller's course ids from `student.period_courses` alone:
+
+```js
+const period_courses = _.find(student?.period_courses, pc => pc.period.toString() === default_period._id.toString());
+const courseIds = period_courses?.courses || [];            // student branch
+(pcourses?.courses || []).forEach(c => courseIdSet.add(String(c)));  // parent branch
+```
+
+But `period_courses` on the STUDENT doc is only written for **directly-assigned** students
+(ιδιαίτερα / not-in-class) by `updateStoreStudentCourses`. Assigning a course to a **class**
+writes `period_courses` on the CLASS doc (`updateStoreClassCourses`) and never copies it onto the
+class's students.
+
+Result: every student who attends through a τμήμα — the common case — bootstrapped with an
+**empty `courses` array**, and their parents likewise. Anything keyed off the courses slice was
+silently empty for them.
+
+**Fix:** resolve the union of both paths via the shared helper:
+
+```js
+const courseIds = await syllabusHandler.getStudentPeriodCourseIds(student, periodId);
+```
+
+`getStudentPeriodCourseIds` (in `controllers/handlers/course-syllabus.js`) unions the student's own
+`period_courses` with the `period_courses` of the class named in their `period_class` entry. The
+parent branch does the same per child (`.forEach` → `for...of`, since the helper is async).
+
+Found while building the course-syllabus feature: the syllabus is per course, so class students
+had no course to open — the feature's main audience saw an empty list.
+
+**Note:** this widens the `courses` slice for students/parents, which is the correct data but a
+behaviour change beyond the syllabus feature. The sibling defect in educational-material's own
+course filter is still OPEN — see BUG-013 in `educational-material-bugs.md`.
+
 ## Summary
 
 | ID | Severity | Description |
@@ -78,3 +120,4 @@ Combine with `store-management-bugs.md` SM-01/SM-02 (a store can end up with zer
 | BS-02 | MEDIUM | Returns `students:[null]` + undefined arrays when no Student doc matches |
 | BS-03 | HIGH | `parent`/`teacher` roles send no response → request hangs |
 | BS-04 | MEDIUM | Missing default period → student crash / store-user silent-empty, no clear error |
+| BS-05 | HIGH | Student/parent bootstrap sends no class-derived courses (only directly-assigned) — FIXED 2026-07-17 |

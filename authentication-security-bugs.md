@@ -123,6 +123,32 @@ The intended guard was almost certainly `if (updated_user)`. As written, the com
 
 ---
 
+## SEC-07 · CRITICAL — `passwordHash` (bcrypt) leaked to clients via the bootstrap & user reads  ✅ FIXED 2026-07-02
+
+**Files:** `controllers/handlers/students.js`, `controllers/handlers/users.js`, `controllers/bootstrap.js` (consumer), `controllers/students.js` (`getStoreStudentUsers`).
+
+The bootstrap payload and several user-read endpoints shipped the full `User` document — **including the bcrypt `passwordHash`** — to the browser, where it lands in the NgRx store. It was observed being echoed back to the server: an announcements `POST /announcements/send` body contained a recipient whose `userId` was the whole `User` object with `"passwordHash": "$2b$10$…"`.
+
+Leak vectors (all returned to a client):
+
+| Source | Ships to |
+|---|---|
+| `fetchStorePeriodStudents` → `Student.populate(…, { path: "user_id" })` (no projection) | bootstrap `students[*].user_id` (store-user login) |
+| `watchStudents` → `.populate("user_id")` | Socket.IO `studentAdded` event |
+| `findUserById` | bootstrap `user` (also used by `isStoreUser`/`isSuperAdmin` — role/store only) |
+| `findUserById2` | `getStoreStudentUsers` response (`users[*].user`) |
+| `getStoreUsers` (`User.find({ store })`) | `GET /users/getStoreUsers` |
+| `activateDeActivateUser` (`User.findOne`) | `activate`/`deActivateUser` responses |
+| `registerUser` (returns freshly-saved doc) | `createSuperAdmin`, `createStoreAdmin`, `createStoreStudentUser` responses |
+
+Root cause: `.populate("user_id")` / `User.find*` with **no field projection**, and returning the raw saved doc from `registerUser`.
+
+**Fix (minimal, allow-secret-exclusion):** exclude the secret on every client-facing path — `.populate("user_id", "-passwordHash")` / `{ path: "user_id", select: "-passwordHash" }`, `.select("-passwordHash")` on the raw `User.find*` reads, and strip it from `registerUser`'s return via `toObject()` destructure. The **login** path (`findUserByEmail`, used by `bcrypt.compare`) intentionally keeps the hash; its response object is already curated. Note the User schema's only secret is `passwordHash` (no salt/reset-token fields), so `-passwordHash` fully closes it. Defense-in-depth option not taken (per "keep it minimal"): `select:false` on the schema field + `.select("+passwordHash")` in login — more robust but unreliable here because most reads use `.lean()`/aggregate, which bypass schema `toJSON` transforms.
+
+**Residual/notes:** dead `findUser` in `controllers/contact_info.js` & `controllers/group.js` reference an **unimported** `User` (would `ReferenceError`) and aren't routed — left as-is. Verified with `node --check`; no test suite in the backend.
+
+---
+
 ## Summary
 
 | ID | Severity | Description |
@@ -133,3 +159,4 @@ The intended guard was almost certainly `if (updated_user)`. As written, the com
 | SEC-04 | HIGH | Socket handshake unauthenticated; client self-declares `storeId/role` |
 | SEC-05 | MEDIUM | JWT secret + plaintext password + tokens logged to console |
 | SEC-06 | LOW | `activate/deActivateUser` use `if (res)` → always-success, dead else branch |
+| SEC-07 | CRITICAL | bcrypt `passwordHash` shipped to clients via bootstrap/user reads/`registerUser` — **FIXED 2026-07-02** |
