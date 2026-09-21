@@ -26,6 +26,7 @@
 | [ui-layout-bugs.md](ui-layout-bugs.md) | `global.scss` breadcrumb-bar layout (frontend, cosmetic) | MEDIUM (2026-07-23; fixed on 2 pages, global fix open) |
 | [api-gateway-wiring-bugs.md](api-gateway-wiring-bugs.md) | REST API Gateway method/param map vs Express routes | HIGH (2026-07-23; 7 wiring bugs fixed, orphaned-verb cleanup open) |
 | [panellinies-bugs.md](panellinies-bugs.md) | Πανελλήνιες / μηχανογραφικό (IDEA-09) | HIGH (2026-09-20; 5 fixed προ-deploy, 4 ανοιχτά — το PAN-10 αφορά **16 άλλα αρχεία** του app) |
+| [assignments-bugs.md](assignments-bugs.md) | εργασίες σπιτιού (IDEA-06): παράδοση, διόρθωση, αρχεία S3 | MEDIUM (2026-09-21, από ανάγνωση κώδικα· ASG-01 η διόρθωση χάνεται σε νέα παράδοση) |
 
 ---
 
