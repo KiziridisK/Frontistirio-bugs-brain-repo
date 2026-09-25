@@ -24,7 +24,7 @@
 | [email-services-bugs.md](email-services-bugs.md) | email send/schedule + SES delivery tracking | HIGH (2 fixed 2026-06-26; deliverability + webhook-auth open) |
 | [ota-live-updates-bugs.md](ota-live-updates-bugs.md) | OTA live updates (Capgo + S3/CloudFront) | **CRITICAL** (all 4 fixed 2026-07-16; no-rollback + no-staged-rollout open) |
 | [ui-layout-bugs.md](ui-layout-bugs.md) | `global.scss` breadcrumb-bar layout (frontend, cosmetic) | MEDIUM (2026-07-23; fixed on 2 pages, global fix open) |
-| [api-gateway-wiring-bugs.md](api-gateway-wiring-bugs.md) | REST API Gateway method/param map vs Express routes | HIGH (2026-07-23; 7 wiring bugs fixed, orphaned-verb cleanup open) |
+| [api-gateway-wiring-bugs.md](api-gateway-wiring-bugs.md) | REST API Gateway method/param map **and integration URIs** vs Express routes | HIGH (2026-09-25; 12 wiring bugs fixed — GW-03 added 5 wrong-URI ones incl. 2 that returned wrong data silently; GW-04 + orphaned-verb cleanup open) |
 | [panellinies-bugs.md](panellinies-bugs.md) | Πανελλήνιες / μηχανογραφικό (IDEA-09) | HIGH (2026-09-20; 5 fixed προ-deploy, 4 ανοιχτά — το PAN-10 αφορά **16 άλλα αρχεία** του app) |
 | [assignments-bugs.md](assignments-bugs.md) | εργασίες σπιτιού (IDEA-06): παράδοση, διόρθωση, αρχεία S3 | MEDIUM (2026-09-21, από ανάγνωση κώδικα· ASG-01 η διόρθωση χάνεται σε νέα παράδοση) |
 

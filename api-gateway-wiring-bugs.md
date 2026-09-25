@@ -65,12 +65,84 @@ parent. Verified 401 post-deploy.
 
 ---
 
+## GW-03 · HIGH (FIXED 2026-09-25) — five resources with the right path but an integration URI pointing at a *different* Express route
+
+A whole defect class GW-01/GW-02 could not see. The resource path and method were **correct**, so
+every diff and every probe said "healthy" — but the `HTTP_PROXY` **integration URI** forwarded to
+another path. Found by comparing, for all 262 integrations, the resource path against the path in
+its own URI (`scripts/gateway-audit.js` check B in the AWS runbook repo).
+
+| Path (resource — correct) | Integration URI forwarded to | Symptom in prod |
+|---|---|---|
+| `POST /grade-scales/create-grade-scale` | `…/create-grade-scale**s**` | `404` — cannot create a grading scale |
+| `POST /grade-scales/edit-grade-scale` | `…/edit-grade-scale**s**` | `404` — cannot edit |
+| `DELETE /grade-scales/delete-grade-scale` | `…/delete-grade-scale**s**` | `404` — cannot delete |
+| `GET /test-cycles/get-teacher-test-cycle-tests` | `…/get-store-test-cycles` | **silently wrong data** — a teacher got the store-wide test-cycle list instead of their own tests |
+| `POST /students/upsert-student-details` | `…/create-store-student` | **silently wrong write** — saving the student «Εγγραφές» tab hit the *create* handler with `{changes, studentId}` |
+
+All five are called by the frontend (`grade-scales.service.ts` ×3, `test-cycle.service.ts`,
+`student-service.service.ts`) and all five exist in Express at the correct path, guarded by
+`authMiddleware`.
+
+**Two severities in one table.** The three `grade-scales` typos were *loud* — a plain `404`. The other
+two were **worse**: the wrong handler is also auth-guarded, so a token-less probe answers `401` exactly
+like a healthy endpoint, and an authenticated call returns `200` with the wrong data. `get-teacher-test-cycle-tests`
+handed a teacher a store-scoped list (a scope leak as well as a bug); `upsert-student-details` routed an
+update into `createStoreStudent`.
+
+**Fix applied:** `update-integration --patch-operations op=replace,path=/uri` on each, setting the URI
+path equal to the resource path — the invariant the other 257 integrations already satisfy. Old values
+backed up first. Verified with `test-invoke-method` **before** deploying (it bypasses the edge cache and
+needs no deployment): all five `401 NO_TOKEN` with the correct `Endpoint request URI`. Deployed
+**Prod `tg9ssq` + dev `825ay1`**, then re-probed live: all five `401` on both stages (the three
+`grade-scales` flipped `404 → 401`; dev served an edge-cached `404` on `delete-grade-scale` for about a
+minute first — runbook §5.18).
+
+**Why now and not in 2026-07-23:** GW-01's diff compared `"METHOD path"` on both sides. That is exactly
+blind to this — the path *is* right. Nothing short of reading each integration's URI finds it.
+
+---
+
+## GW-04 · MEDIUM (OPEN) — two integrations are plain `HTTP`, not `HTTP_PROXY`, so backend status codes collapse to `200`
+
+| Path | Effect |
+|---|---|
+| `POST /test-cycles/export-store-test-seating` | Express returns `401 {"code":"NO_TOKEN"}`; the **client receives `200`** with that body |
+| `POST /users/register-superadmin` | same collapse |
+
+Both carry a single `integrationResponses` entry `{"200": {statusCode: "200"}}` and no selection
+pattern, so *every* backend status — 401, 404, 500 — is rewritten to `200`. The body passes through, so
+the caller sees a success status wrapping an error payload and any `catch`/`if (!res.ok)` branch in the
+frontend never fires. A non-proxy integration also does not pass binary through without explicit binary
+media types, which matters for a PDF-export endpoint.
+
+**Not fixed here** — unlike GW-03 this is not a typo with one obviously-correct value: converting
+`HTTP → HTTP_PROXY` drops the integration/method responses and changes response handling on an endpoint
+that works today for authenticated callers. Worth its own deliberate pass with the frontend callers in
+hand. Detected by `gateway-audit.js` check C, which fails the run while they remain.
+
+**Related, not a gateway bug:** `register-superadmin` is also tracked as **SEC-01** in
+`authentication-security-bugs.md` (still open, re-confirmed 2026-09-25). The `200` collapse only makes
+it quieter. ⚠ This repo is **public** — SEC-01 is a live production hole; see the note in `README.md`
+about making the repo private before adding any more detail to it.
+
+---
+
 ## Root cause & prevention
 
 None of these were introduced by the feature work of 2026-07-23; they were **latent gateway drift**
 that only surfaced because this was the first Express↔gateway *diff*. The earlier per-feature scripts
 (`add-calendar-endpoints.sh`, `add-course-syllabus-endpoints.sh`) only ever looked at the endpoints
 they were adding, so a wrong verb or orphaned param on a path nobody was touching stayed invisible.
+
+**2026-09-25 update — the prevention below was necessary but NOT sufficient.** GW-03 proved a
+`"METHOD path"` diff is blind to a wrong integration URI, and a probe sweep is blind to it too (the
+wrong handler answers `401` just like the right one). The gateway has **two** sides per endpoint and
+only one of them was ever being checked. Use **`scripts/gateway-audit.js`** in the AWS runbook repo
+instead of `route-diff.js` alone: it runs routability (A), **URI-vs-path (B)**, integration type (C),
+orphans (D) and public routes (E), and exits non-zero on A/B/C. Since the root `/{proxy+}` catch-all
+(2026-09-21) a *missing* resource is no longer a bug at all — which makes B and C the only checks that
+still find real breakage.
 
 **Prevention:** run the full diff each round, not a hand-written feature list. `sync-missing-endpoints.sh`
 in the AWS runbook is table-driven off exactly this diff — re-derive it (enumerate Express by walking
