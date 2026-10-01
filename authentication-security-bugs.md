@@ -8,7 +8,7 @@
 
 ---
 
-## SEC-01 · CRITICAL — Open superadmin registration (no auth)
+## SEC-01 · ~~CRITICAL~~ — Open superadmin registration (no auth) — ✅ FIXED 2026-09-26
 
 **File:** `routes/users.js` line 9
 
@@ -16,13 +16,42 @@
 router.post("/register-superadmin", usersController.createSuperAdmin);
 ```
 
-There is **no `authMiddleware` and no role guard**. Any anonymous client can `POST /users/register-superadmin` with `{ email, password, username }` and create a fully privileged superadmin account, then log in and control every group/store in the system.
+There was **no `authMiddleware` and no role guard**. Any anonymous client could `POST /users/register-superadmin` with `{ email, password, username }` and create a fully privileged superadmin account, then log in and control every group/store in the system.
 
-**Fix:** Remove the route entirely after the first admin is seeded, or guard it (e.g. `authMiddleware, isSuperAdmin`, or a one-time bootstrap token / env check). At minimum, disable it in production.
+**It got worse before it got fixed.** The June pass assumed the blast radius was limited because the
+path was not wired in API Gateway (only a direct call to EC2:3000 reached it, which the world-open
+SG allows). Since the **root `/{proxy+}` catch-all added 2026-09-21** (300-resource quota, see
+`api-gateway-wiring-bugs.md` / the aws-infrastructure brain repo) *every* path is forwarded to
+Express — so this was reachable from the public gateway URL too. Lesson: a "not wired in the gateway"
+mitigation evaporates the moment a catch-all is added.
+
+**Fixed 2026-09-26:**
+- The route is now `authMiddleware + isSuperAdmin` (same pair as `register-store-admin`), so only an
+  existing superadmin can mint another.
+- First-superadmin bootstrap moved out of the HTTP surface into **`scripts/create-superadmin.js`**
+  (requires shell access + the Mongo URI; refuses to run when a superadmin already exists unless
+  `--force`, refuses an email already in use, never logs the password).
+- `createSuperAdmin` hardened: validates `email`/`password` before hashing (a missing password used
+  to make `bcrypt.hash(undefined)` throw → 500 instead of 400), aborts the transaction on the
+  early-return paths, stops `console.log`-ing the password hash and the created user, and records
+  `createdBy: req.user.id`.
+- Dead frontend caller removed: `home.page.ts register()` (never bound in the template) posted a
+  hardcoded superadmin payload.
+
+**Verified** against the local API on the dev DB: anonymous → `401 NO_TOKEN`, forged/malformed token
+→ `403 INVALID_TOKEN`, valid **store-user** token → `403 Forbidden: insufficient role`, and no user
+rows were created by any of the three attempts (superadmin count in dev unchanged at 1).
 
 ---
 
-## SEC-02 · CRITICAL — `change-password` is unauthenticated-by-design (IDOR) and broken
+## SEC-02 · ~~CRITICAL~~ — `change-password` is unauthenticated-by-design (IDOR) and broken — ✅ FIXED (verified 2026-09-26)
+
+> Current code: `router.post("/change-password", authMiddleware, usersController.changePassWord)`
+> and the controller takes the target from `req.user.id` ("Identify the user from the authenticated
+> token, never from the body"), uses `usersHandler.updatePassword` (no missing-import throw), and
+> revokes every refresh token for that user. All three problems below are gone; the description is
+> kept for the record.
+
 
 **File:** `routes/users.js` line 48 + `controllers/users.js` `changePassWord` (~line 380)
 
@@ -153,8 +182,8 @@ Root cause: `.populate("user_id")` / `User.find*` with **no field projection**, 
 
 | ID | Severity | Description |
 |---|---|---|
-| SEC-01 | CRITICAL | `/users/register-superadmin` has no auth — anyone can create a superadmin |
-| SEC-02 | CRITICAL | `change-password` (GET) has no authz → any user resets any password; also throws (`User` not imported) |
+| SEC-01 | ~~CRITICAL~~ ✅ FIXED | `/users/register-superadmin` had no auth — anyone could create a superadmin → now `authMiddleware + isSuperAdmin`, first one seeded via `scripts/create-superadmin.js` (2026-09-26) |
+| SEC-02 | ~~CRITICAL~~ ✅ FIXED | `change-password` (GET) had no authz → now POST, identity from the token, sessions revoked (verified 2026-09-26) |
 | SEC-03 | HIGH | `createStoreAdmin` mis-aligned `registerUser` args → store-user saved with `store:""`, outside transaction |
 | SEC-04 | HIGH | Socket handshake unauthenticated; client self-declares `storeId/role` |
 | SEC-05 | MEDIUM | JWT secret + plaintext password + tokens logged to console |

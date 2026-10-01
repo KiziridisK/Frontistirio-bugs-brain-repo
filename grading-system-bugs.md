@@ -93,6 +93,56 @@ per-**student** validation is not enforced on submit (only per-course) — a tea
 
 ---
 
+## GR-07 · MEDIUM — τάξεις (`Grade`) shipped soft-deleted in every bootstrap — ✅ FIXED 2026-09-26
+
+**File:** `controllers/handlers/grades.js` `fetchStoreGrades`, called 4× in `controllers/bootstrap.js`
+(store-user, student, parent and teacher payloads) plus `GET /grades/get-store-grades`.
+
+`Grade.find({ store_id })` carried **no** `isDeleted` filter, so soft-deleted τάξεις went out to every
+client on every login — the last unfixed read of the systemic soft-delete defect that was still on a
+hot path.
+
+The catch: the τάξεις **recycle bin is client-side** (`grades.component.ts` filters
+`!!showRecycleBin !== !!grade.isDeleted` over the ngrx store), and its only action is *permanent*
+delete — there is no restore for τάξεις. So simply filtering the read would have emptied the bin and
+left soft-deleted rows unreachable and unpurgeable forever (exactly what already happened to students
+on 2026-07-14).
+
+**Fix — split the two reads instead of filtering one payload:**
+- `fetchStoreGrades(storeId, { includeDeleted = false })` — excludes soft-deleted by default, so
+  bootstrap and `get-store-grades` are clean.
+- New `fetchStoreDeletedGrades(storeId)` + controller `getStoreDeletedGrades` + **`// NEW ROUTE`**
+  `GET /grades/get-store-deleted-grades` (`authMiddleware + isStoreUser`) — the bin's own read. No
+  API Gateway work needed (root `/{proxy+}` catch-all).
+- Frontend: `GradesService.getStoreDeletedGrades()`; `grades.component.ts` keeps `activeGrades` (store)
+  and `deletedGrades` (fetched on init for the bin badge count, re-fetched on each bin open) and
+  composes both into the list the filters run on; `grade-item` got an `@Output() purged` so a
+  permanent delete drops the row (no realtime event can — the row was never in the store).
+
+**Verified** on the dev DB: a temporary soft-deleted τάξη was invisible to `fetchStoreGrades` /
+`GET /grades/get-store-grades` (9 rows, none deleted) and visible to
+`GET /grades/get-store-deleted-grades` (`{success:true,grades:[…]}`), then removed. Frontend: `tsc`
+clean + AOT `ng build` clean. No UI click-through yet.
+
+---
+
+## GR-08 · MEDIUM (new, 2026-09-26) — `deleteStoreGrade` is not store-scoped (IDOR) and `/grades/get-all` is unauthenticated
+
+Two things spotted while fixing GR-07, **both still open**:
+
+1. `controllers/grades.js deleteStoreGrade` → `gradeHandler.deleteStoreGrade(gradeId, permanently)`
+   takes the id straight from the body and never checks `grade.store_id === req.user.store`. Any
+   store-user can soft- **or hard**-delete another store's τάξη by id. (Same shape as ST-01; contrast
+   the student delete, which does guard the store.) It also has no referential guard, so a τάξη can be
+   deleted while students/τμήματα still reference it — their τάξη name then resolves to nothing in the
+   UI, since every page filters `!g.isDeleted` client-side.
+2. `routes/grades.js` last line: `router.get("/get-all", gradeController.getAllGrades)` — **no
+   `authMiddleware`** — and `fetchAllGrades()` is `Grade.find()` across *every* store. Same family as
+   SEC-01: an anonymous cross-tenant read, reachable through the gateway catch-all. `classes.js`,
+   `course.js` and others have the same `/get-all` pattern — worth one sweep over all of them.
+
+---
+
 ## Summary
 
 | ID | Severity | Description |
@@ -102,4 +152,6 @@ per-**student** validation is not enforced on submit (only per-course) — a tea
 | GR-03 | MEDIUM | Read-then-write upsert without unique index → duplicate grade records (now on upsert **and** submit) |
 | GR-04 | LOW | `visible` flag unused (no student grade endpoint); approval uses a separate `status` field |
 | GR-05 | LOW | `student_ids` validation passes when undefined / breaks on non-array |
-| GR-06 | ~~HIGH~~ ✅ FIXED | Teacher grade submit lacked course-ownership check (IDOR) → now gated server-side (2026-07-06); per-student check still open |
+| GR-06 | ~~HIGH~~ ✅ FIXED | Teacher grade submit lacked course-ownership check (IDOR) → now gated server-side (2026-07-06); per-student check **still open** (re-verified 2026-09-26: `student-course-grade.js` checks `courseIds` only) |
+| GR-07 | ~~MEDIUM~~ ✅ FIXED | τάξεις shipped soft-deleted in every bootstrap → read split + dedicated recycle-bin endpoint (2026-09-26) |
+| GR-08 | MEDIUM | **Open (new):** `deleteStoreGrade` not store-scoped (cross-store delete) + unauthenticated `GET /grades/get-all` returns every store's τάξεις |

@@ -25,7 +25,7 @@ Two issues:
 
 ---
 
-## CC-02 · MEDIUM — Soft-deleted courses/classes are returned (no `isDeleted` filter)
+## CC-02 · ~~MEDIUM~~ — Soft-deleted courses/classes are returned (no `isDeleted` filter) — ✅ FIXED (2026-07-14 + 2026-09-26)
 
 **Files:**
 - `course.js` `fetchStorePeriodCourses` (line 112 `$match: { store_id }`) and `fetchStoreCourses` (line 74 `Course.find({ store_id })`)
@@ -34,6 +34,13 @@ Two issues:
 None of the list/aggregation queries filter `isDeleted`. Soft-deleted courses and classes are loaded into the bootstrap payload and NgRx store. The brain-doc soft-delete contract ("all queries include `isDeleted:false`") is not honored on the read path. (Same family as student `isDeleted` leak — see `student-management-bugs.md`.)
 
 **Fix:** add `isDeleted: { $ne: true }` to the `$match` / `find`.
+
+**Fixed in two rounds:**
+- **2026-07-14** (indexing pass): `fetchStorePeriodCourses` / `fetchStorePeriodClasses` — the
+  aggregations that actually feed bootstrap — now `$match { store_id, isDeleted: { $ne: true } }`.
+- **2026-09-26:** the flat `fetchStoreCourses` / `fetchStoreClasses` finds too. Measured on the dev
+  DB before/after: courses `102 → 99` returned (3 soft-deleted stopped shipping), classes unchanged
+  (none deleted there), and every returned row has `isDeleted` falsy.
 
 ---
 

@@ -58,7 +58,21 @@ in `global.scss` (or reorder the two blocks).
 
 ## Status
 
-Fixed **scoped to two pages only** on 2026-07-23 — `test-cycle-details.component.scss` and
-`classroom-diagram.component.scss` each carry a local override plus a mobile restore. The global fix
-is **still open**: applying UI-01/UI-02 in `global.scss` would move buttons on ~20 pages at once and
-needs a visual pass over each. Every other page still renders the full-width variant.
+**FIXED globally — 2026-09-26.** Both rules now live in `src/global.scss`:
+
+- **UI-02** — a more specific `.breadcrumb-bar.page-background { display: flex }` (line ~152) is
+  declared after `.page-background`, so the bar flexes again and the actions stay on the
+  breadcrumbs' row.
+- **UI-01** — the base `.breadcrumb-actions ion-button` rule no longer sets `flex` at all;
+  `@media (min-width: 769px)` gives it `flex: 0 0 auto` (height 34px) and the
+  `@media (max-width: 768px)` block `flex: 0 0 auto` (height 36px). Nothing grows unconditionally.
+
+The two page-scoped workarounds added on 2026-07-23 were **removed** the same day
+(`test-cycle-details.component.scss`, `classroom-diagram.component.scss`); each now keeps only its
+own button cosmetics (weight, radius, padding, the κάτοψη Save's green shadow) and its deliberate
+`@media (max-width: 768px)` rule that stretches those two pages' actions to full-width tap targets.
+
+Measured on the harness at the bug report's own 1058px bar: the two test-cycle buttons come out
+**161px / 169px** with `flex-grow: 0` (they were 503px / 507px), computed `display` on the bar is
+`flex`, and the actions sit at its right end on the same row as the crumbs. At 390px the bar is two
+rows, the actions right-aligned, no horizontal page scroll.

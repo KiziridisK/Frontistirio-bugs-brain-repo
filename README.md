@@ -10,20 +10,20 @@
 
 | File | Scope | Highest severity |
 |---|---|---|
-| [authentication-security-bugs.md](authentication-security-bugs.md) | login, users, socket auth | **CRITICAL** |
+| [authentication-security-bugs.md](authentication-security-bugs.md) | login, users, socket auth | **CRITICAL** (SEC-01/SEC-02 fixed 2026-09-26; SEC-03…06 open) |
 | [real-time-sync-bugs.md](real-time-sync-bugs.md) | Change Streams → Socket.IO → NgRx | **CRITICAL** |
 | [bootstrap-bugs.md](bootstrap-bugs.md) | `/bootstrap/getSingle` | HIGH |
 | [store-management-bugs.md](store-management-bugs.md) | stores, teaching periods (scoping key) | HIGH |
 | [test-cycles-bugs.md](test-cycles-bugs.md) | test cycles & tests | HIGH |
 | [pdf-generation-bugs.md](pdf-generation-bugs.md) | pdfkit + S3 export | HIGH |
-| [grading-system-bugs.md](grading-system-bugs.md) | grades / student-course-grade | HIGH (doc/contract) |
+| [grading-system-bugs.md](grading-system-bugs.md) | grades / student-course-grade | HIGH (doc/contract; GR-07 soft-delete fixed 2026-09-26, GR-08 store-scope/`get-all` open) |
 | [student-management-bugs.md](student-management-bugs.md) | student CRUD & relations | MEDIUM |
 | [course-class-management-bugs.md](course-class-management-bugs.md) | courses & classes | MEDIUM |
 | [educational-material-bugs.md](educational-material-bugs.md) | educational material | HIGH (earlier pass; BUG-011 grade-enforcement fixed 2026-06-25 w/ course-level perms) |
 | [private-lessons-bugs.md](private-lessons-bugs.md) | private lessons & rates | CRITICAL (partly fixed — see staleness note) |
 | [email-services-bugs.md](email-services-bugs.md) | email send/schedule + SES delivery tracking | HIGH (2 fixed 2026-06-26; deliverability + webhook-auth open) |
 | [ota-live-updates-bugs.md](ota-live-updates-bugs.md) | OTA live updates (Capgo + S3/CloudFront) | **CRITICAL** (all 4 fixed 2026-07-16; no-rollback + no-staged-rollout open) |
-| [ui-layout-bugs.md](ui-layout-bugs.md) | `global.scss` breadcrumb-bar layout (frontend, cosmetic) | MEDIUM (2026-07-23; fixed on 2 pages, global fix open) |
+| [ui-layout-bugs.md](ui-layout-bugs.md) | `global.scss` breadcrumb-bar layout (frontend, cosmetic) | ✅ fixed globally 2026-09-26 (UI-01 + UI-02; page workarounds removed) |
 | [api-gateway-wiring-bugs.md](api-gateway-wiring-bugs.md) | REST API Gateway method/param map **and integration URIs** vs Express routes | HIGH (2026-09-25; 12 wiring bugs fixed — GW-03 added 5 wrong-URI ones incl. 2 that returned wrong data silently; GW-04 + orphaned-verb cleanup open) |
 | [panellinies-bugs.md](panellinies-bugs.md) | Πανελλήνιες / μηχανογραφικό (IDEA-09) | HIGH (2026-09-20; 5 fixed προ-deploy, 4 ανοιχτά — το PAN-10 αφορά **16 άλλα αρχεία** του app) |
 | [assignments-bugs.md](assignments-bugs.md) | εργασίες σπιτιού (IDEA-06): παράδοση, διόρθωση, αρχεία S3 | MEDIUM (2026-09-21, από ανάγνωση κώδικα· ASG-01 η διόρθωση χάνεται σε νέα παράδοση) |
@@ -38,17 +38,27 @@
    used in a synchronous boolean, so the role gate is a no-op on insert/delete. Same two-line
    mistake is copy-pasted into ~10 handlers.
 
-2. **Soft-delete is not honored on read paths.** Students, courses, classes and grades are fetched
+2. **Soft-delete is not honored on read paths.** Students, courses, classes and grades were fetched
    without `isDeleted: false` (the period aggregations only `$match { store_id }`). The brain docs
-   claim "all queries include `isDeleted:false`" — they don't. Soft-deleted records (incl. PII) ship
+   claim "all queries include `isDeleted:false`" — they didn't. Soft-deleted records (incl. PII) shipped
    in the bootstrap payload; the frontend only masks some of them in list views.
-   **Partially fixed 2026-07-14:** the 4 hot period aggregations
+   **Fixed 2026-07-14:** the 4 hot period aggregations
    (`fetchStorePeriodStudents/Courses/Classes/Teachers`) now `$match { …, isDeleted:{$ne:true} }`
-   (verified: 5 soft-deleted teachers stopped leaking into bootstrap). The rest of the read paths are
-   still unfixed. See the **Frontistirio-database-indexing-brain-repo** for the full pass + index catalog.
+   (verified: 5 soft-deleted teachers stopped leaking into bootstrap). See the
+   **Frontistirio-database-indexing-brain-repo** for the full pass + index catalog.
+   **Fixed 2026-09-26 — all four bootstrap-facing reads are now clean:** the flat
+   `fetchStoreStudents` / `fetchStoreClasses` / `fetchStoreCourses` finds (dev DB: 4 students +
+   3 courses stopped shipping) and `fetchStoreGrades`, the last one still on a hot path — that one
+   needed a read *split* rather than a filter, because the client-side recycle bin was living off the
+   leak (see `grading-system-bugs.md` GR-07).
+   **Still open:** every entity whose recycle bin is client-side (students, τμήματα, μαθήματα) now has
+   an **empty bin** — the τάξεις pattern (a dedicated `get-store-deleted-*` read) is the fix to copy.
+   And the rest of the read paths outside bootstrap were never audited.
 
-Also high-impact and quick: open `/users/register-superadmin` (no auth) and the
-`change-password` IDOR (`authentication-security-bugs.md` SEC-01/SEC-02).
+Also high-impact and quick: ~~open `/users/register-superadmin` (no auth)~~ ✅ fixed 2026-09-26 and
+~~the `change-password` IDOR~~ ✅ fixed (`authentication-security-bugs.md` SEC-01/SEC-02). Next in that
+family: the unauthenticated `/get-all` routes (`grading-system-bugs.md` GR-08) — anonymous
+cross-tenant reads, now reachable through the gateway catch-all.
 
 ---
 

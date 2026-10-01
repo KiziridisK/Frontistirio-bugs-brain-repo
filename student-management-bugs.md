@@ -75,9 +75,20 @@ The controller reads `.length` directly. If the client sends a `changes` object 
 
 ---
 
-## Note on soft-deleted students leaking (see course-class report CC-02)
+## Note on soft-deleted students leaking (see course-class report CC-02) — ✅ FIXED (2026-07-14 + 2026-09-26)
 
-`fetchStorePeriodStudents` (handler line 125) matches only `{ store_id }` — **no `isDeleted: false`** — and `fetchStoreStudents` (line 27) is `Student.find({ store_id })`. The brain doc's Soft-Delete section claims "All DB queries include `{ isDeleted: false }`" — that is **not** true here. Soft-deleted students (with PII and parent records) are sent in the bootstrap payload; only the frontend list view filters them out. Add `isDeleted: false` to the `$match`/`find`.
+`fetchStorePeriodStudents` (handler line 125) matched only `{ store_id }` — **no `isDeleted: false`** — and `fetchStoreStudents` (line 27) was `Student.find({ store_id })`. The brain doc's Soft-Delete section claims "All DB queries include `{ isDeleted: false }`" — that was **not** true here. Soft-deleted students (with PII and parent records) were sent in the bootstrap payload; only the frontend list view filtered them out.
+
+**Fixed:** the period aggregation on 2026-07-14 (indexing pass), and `fetchStoreStudents` on
+2026-09-26 — measured on the dev DB: `61 → 57` students returned, i.e. **4 soft-deleted students
+(with their parent records) stopped shipping** through `GET /students/get-store-students`, which the
+add-student page uses for duplicate/sibling suggestions.
+
+⚠️ Consequence to keep in mind (already true since 2026-07-14, see the student-delete brain note):
+the students **recycle bin is client-side**, so with the reads filtered it is empty after a reload
+and restore is unreachable from the UI. The τάξεις bin hit the same wall on 2026-09-26 and got the
+proper fix — a dedicated `GET /grades/get-store-deleted-grades` read (see `grading-system-bugs.md`
+GR-07). Students/τμήματα/μαθήματα still need the same treatment.
 
 ---
 
@@ -90,4 +101,4 @@ The controller reads `.length` directly. If the client sends a `changes` object 
 | ST-03 | MEDIUM | `getStoreStudentUsers` crashes when `parents.father/mother` is null |
 | ST-04 | MEDIUM | `upsertStudentDetails` reads `.length` of possibly-undefined course arrays |
 | ST-05 | LOW | Dead `obj` literal; opaque error when no default period |
-| (note) | MEDIUM | Student fetch queries omit `isDeleted:false` → soft-deleted students leak in bootstrap |
+| (note) | ~~MEDIUM~~ ✅ FIXED | Student fetch queries omitted `isDeleted:false` → soft-deleted students leaked (aggregation 2026-07-14, flat find 2026-09-26) |
